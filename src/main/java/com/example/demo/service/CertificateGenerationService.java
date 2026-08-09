@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.pdf.PdfDocument;
@@ -9,43 +8,36 @@ import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.kernel.pdf.canvas.PdfCanvas;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
 @Service
 public class CertificateGenerationService {
 
     public void generateCertificate(
-            String templatePath,
-            String outputPath,
+            InputStream templatePdf,
+            OutputStream outputPdf,
             String name,
             float x,
             float y,
             float fontSize,
             String fontName,
             boolean centerText
-
     ) throws Exception {
 
-        PdfReader reader = new PdfReader(templatePath);
-        PdfWriter writer = new PdfWriter(outputPath);
+        PdfReader reader = new PdfReader(templatePdf);
+        PdfWriter writer = new PdfWriter(outputPdf);
 
         try (PdfDocument pdfDocument =
                      new PdfDocument(reader, writer)) {
 
-            // Get page
             var page = pdfDocument.getPage(1);
 
-            PdfCanvas canvas =
-                    new PdfCanvas(page);
-
-            // -----------------------------------------
-            // Create font
-            // -----------------------------------------
+            PdfCanvas canvas = new PdfCanvas(page);
 
             PdfFont font =
                     PdfFontFactory.createFont(fontName);
-
-            // -----------------------------------------
-            // Calculate X position
-            // -----------------------------------------
 
             float finalX = x;
 
@@ -60,10 +52,6 @@ public class CertificateGenerationService {
                 finalX =
                         (pageWidth - textWidth) / 2;
             }
-
-            // -----------------------------------------
-            // Write name
-            // -----------------------------------------
 
             canvas.beginText();
 
