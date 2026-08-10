@@ -13,7 +13,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
@@ -42,48 +44,50 @@ public class PdfController {
     // =========================================================
     // 1. SIGN EXISTING PDF
     // =========================================================
+   @PostMapping(
+           value = "/sign",
+           consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+   )
+   public ResponseEntity<byte[]> signPdf(
 
-    @PostMapping("/sign")
-    public ResponseEntity<byte[]> signPdf(
-            @RequestBody SignPdfRequest request) throws Exception {
+           @RequestPart("file")
+           MultipartFile pdfFile,
 
-        Resource template =
-                resourceLoader.getResource(
-                        "classpath:templates/template.pdf"
-                );
+           @RequestPart("signatureImage")
+           MultipartFile signatureImage,
 
-        ByteArrayOutputStream out =
-                new ByteArrayOutputStream();
+           @RequestPart("request")
+           SignPdfRequest request
 
-        try (InputStream templateInputStream =
-                     template.getInputStream()) {
+   ) throws Exception
+   {
+       ByteArrayOutputStream output = new ByteArrayOutputStream();
 
-            pdfSigningService.signPdf(
+       pdfSigningService.signPdf(
+               pdfFile.getInputStream(),
+               signatureImage.getInputStream(),
+               output,
+               request.getPageNumber(),
+               request.getLlx(),
+               request.getLly(),
+               request.getUrx(),
+               request.getUry(),
+               request.getName(),
+               request.getDesignation(),
+               request.getOrganization()
 
-                    templateInputStream,
+       );
 
-                    out,
+       return ResponseEntity.ok()
+               .contentType(MediaType.APPLICATION_PDF)
+               .header(
+                       HttpHeaders.CONTENT_DISPOSITION,
+                       "attachement: filename= signed.pdf"
 
-                    request.getPageNumber(),
+               ).body(output.toByteArray());
 
-                    request.getLlx(),
-                    request.getLly(),
-                    request.getUrx(),
-                    request.getUry(),
 
-                    request.getReason(),
-                    request.getLocation()
-            );
-        }
-
-        return ResponseEntity.ok()
-                .header(
-                        HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=signed.pdf"
-                )
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(out.toByteArray());
-    }
+   }
 
 
     // =========================================================
@@ -137,9 +141,19 @@ public class PdfController {
     // =========================================================
     // 3. GENERATE + SIGN CERTIFICATE
     // =========================================================
-    @PostMapping("/generate-and-sign")
+    @PostMapping(
+            value = "/generate-and-sign",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
     public ResponseEntity<byte[]> generateAndSignCertificate(
-            @RequestBody GenerateAndSignRequest request) throws Exception {
+
+            @RequestPart("signatureImage")
+            MultipartFile signatureImage,
+
+            @RequestPart("request")
+            GenerateAndSignRequest request
+
+    ) throws Exception {
 
         Resource template =
                 resourceLoader.getResource(
@@ -148,35 +162,43 @@ public class PdfController {
 
         byte[] signedPdf;
 
-        try (InputStream templateInputStream =
-                     template.getInputStream()) {
+        try (
+                InputStream templateInputStream =
+                        template.getInputStream();
 
-            signedPdf = certificateService.generateAndSignCertificate(
+                InputStream signatureImageInputStream =
+                        signatureImage.getInputStream()
+        ) {
 
-                    templateInputStream,
+            signedPdf =
+                    certificateService.generateAndSignCertificate(
 
-                    request.getName(),
-                    request.getDate(),
-                    request.getCertificateId(),
+                            templateInputStream,
 
-                    request.getPageNumber(),
+                            signatureImageInputStream,
 
-                    request.getTextX(),
-                    request.getTextY(),
+                            request.getName(),
+                            request.getDate(),
+                            request.getCertificateId(),
 
-                    request.getTextFontSize(),
-                    request.getTextFontType(),
+                            request.getPageNumber(),
 
-                    request.isCenterText(),
+                            request.getTextX(),
+                            request.getTextY(),
 
-                    request.getSignatureLlx(),
-                    request.getSignatureLly(),
-                    request.getSignatureUrx(),
-                    request.getSignatureUry(),
+                            request.getTextFontSize(),
+                            request.getTextFontType(),
 
-                    request.getReason(),
-                    request.getLocation()
-            );
+                            request.isCenterText(),
+
+                            request.getSignatureLlx(),
+                            request.getSignatureLly(),
+                            request.getSignatureUrx(),
+                            request.getSignatureUry(),
+
+                            request.getReason(),
+                            request.getLocation()
+                    );
         }
 
         return ResponseEntity.ok()

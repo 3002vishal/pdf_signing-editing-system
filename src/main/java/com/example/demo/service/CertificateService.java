@@ -18,6 +18,8 @@ public class CertificateService {
 
             InputStream templatePdf,
 
+            InputStream signatureImage,
+
             String name,
             String date,
             String certificateId,
@@ -70,14 +72,18 @@ public class CertificateService {
         ByteArrayOutputStream signedPdf =
                 new ByteArrayOutputStream();
 
-        try (ByteArrayInputStream input =
-                     new ByteArrayInputStream(
-                             unsignedPdf.toByteArray()
-                     )) {
+        try (
+                ByteArrayInputStream pdfInput =
+                        new ByteArrayInputStream(
+                                unsignedPdf.toByteArray()
+                        )
+        ) {
 
             pdfSigningService.signPdf(
 
-                    input,
+                    pdfInput,
+
+                    signatureImage,
 
                     signedPdf,
 
@@ -88,7 +94,8 @@ public class CertificateService {
                     signatureUrx,
                     signatureUry,
 
-                    reason,
+                    name,
+                    null,
                     location
             );
         }

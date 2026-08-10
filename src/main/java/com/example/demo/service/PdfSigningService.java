@@ -1,9 +1,23 @@
 package com.example.demo.service;
 
+import com.itextpdf.forms.form.element.SignatureFieldAppearance;
+import com.itextpdf.io.image.ImageData;
+import com.itextpdf.io.image.ImageDataFactory;
 import com.itextpdf.kernel.geom.Rectangle;
 import com.itextpdf.kernel.pdf.PdfReader;
 import com.itextpdf.kernel.pdf.StampingProperties;
-import com.itextpdf.signatures.*;
+import com.itextpdf.layout.element.Div;
+import com.itextpdf.layout.element.Image;
+import com.itextpdf.layout.element.Paragraph;
+import com.itextpdf.layout.properties.TextAlignment;
+import com.itextpdf.signatures.BouncyCastleDigest;
+import com.itextpdf.signatures.DigestAlgorithms;
+import com.itextpdf.signatures.IExternalDigest;
+import com.itextpdf.signatures.IExternalSignature;
+import com.itextpdf.signatures.PdfSigner;
+import com.itextpdf.signatures.PrivateKeySignature;
+import com.itextpdf.signatures.SignerProperties;
+
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -23,7 +37,7 @@ public class PdfSigningService {
     private final ResourceLoader resourceLoader;
 
     @Value("${pdf.signing.keystore-path}")
-    private String keystorePath;       // e.g. classpath:certificates/signer.p12
+    private String keystorePath;
 
     @Value("${pdf.signing.keystore-password}")
     private String keystorePassword;
@@ -34,81 +48,420 @@ public class PdfSigningService {
     @Value("${pdf.signing.key-password}")
     private String keyPassword;
 
+
     public PdfSigningService(ResourceLoader resourceLoader) {
+
         this.resourceLoader = resourceLoader;
-        // Register BouncyCastle once
-        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(new BouncyCastleProvider());
+
+        if (Security.getProvider(
+                BouncyCastleProvider.PROVIDER_NAME) == null) {
+
+            Security.addProvider(
+                    new BouncyCastleProvider()
+            );
         }
     }
 
-    /**
-     * Signs a PDF at a specific rectangle on a specific page.
-     *
-     * @param sourcePdf    the unsigned PDF (e.g. template.pdf)
-     * @param outputStream where the signed PDF is written
-     * @param pageNumber   1-based page number to place the signature on
-     * @param llx, lly     lower-left x/y of the signature box (PDF points, origin bottom-left)
-     * @param urx, ury     upper-right x/y of the signature box
-     * @param reason       shown in the signature ("Approved", "Contract signed", etc.)
-     * @param location     shown in the signature ("Bangalore, India")
-     */
-    public void signPdf(InputStream sourcePdf,
-                        OutputStream outputStream,
-                        int pageNumber,
-                        float llx, float lly, float urx, float ury,
-                        String reason,
-                        String location) throws Exception {
 
-        // 1. Load the PKCS#12 keystore
-        KeyStore ks = KeyStore.getInstance("PKCS12");
-        Resource keystoreResource = resourceLoader.getResource(keystorePath);
-        try (InputStream ksStream = keystoreResource.getInputStream()) {
-            ks.load(ksStream, keystorePassword.toCharArray());
+    public void signPdf(
+
+            InputStream sourcePdf,
+
+            InputStream signatureImage,
+
+            OutputStream outputStream,
+
+            int pageNumber,
+
+            float llx,
+            float lly,
+            float urx,
+            float ury,
+
+            String name,
+            String designation,
+            String organization
+
+    ) throws Exception {
+
+
+        // =========================================================
+        // 1. LOAD PKCS12 KEYSTORE
+        // =========================================================
+
+        KeyStore ks =
+                KeyStore.getInstance("PKCS12");
+
+        Resource keystoreResource =
+                resourceLoader.getResource(keystorePath);
+
+        try (InputStream ksStream =
+                     keystoreResource.getInputStream()) {
+
+            ks.load(
+                    ksStream,
+                    keystorePassword.toCharArray()
+            );
         }
 
-        PrivateKey privateKey = (PrivateKey) ks.getKey(keyAlias, keyPassword.toCharArray());
-        Certificate[] chain = ks.getCertificateChain(keyAlias);
+
+        // =========================================================
+        // 2. GET PRIVATE KEY
+        // =========================================================
+
+        PrivateKey privateKey =
+                (PrivateKey) ks.getKey(
+                        keyAlias,
+                        keyPassword.toCharArray()
+                );
+
+
+        // =========================================================
+        // 3. GET CERTIFICATE CHAIN
+        // =========================================================
+
+        Certificate[] chain =
+                ks.getCertificateChain(keyAlias);
+
 
         if (privateKey == null || chain == null) {
+
             throw new IllegalStateException(
-                    "No private key / certificate chain found for alias '" + keyAlias + "'. " +
-                            "Check keystore alias and passwords.");
+                    "No private key / certificate chain found " +
+                            "for alias '" + keyAlias + "'."
+            );
         }
 
-        // 2. Build the signer properties (page, rect, reason, location, field name)
-        SignerProperties signerProperties = new SignerProperties()
-                .setFieldName("signature-" + System.currentTimeMillis()) // unique field name
-                .setPageNumber(pageNumber)
-                .setPageRect(new Rectangle(llx, lly, urx - llx, ury - lly))
-                .setReason(reason)
-                .setLocation(location)
-                .setSignatureCreator("CDAC-PdfSigningService");
 
-        // 3. Create the signer — SignerProperties is passed via the constructor in iText 8.0.4,
-        //    there is no setSignerProperties() setter on this version.
-        PdfReader reader = new PdfReader(sourcePdf);
-        PdfSigner signer = new PdfSigner(
-                reader,
-                outputStream,
-                null,                     // temp file path; null = buffer in memory
-                new StampingProperties(),
-                signerProperties
+        // =========================================================
+        // 4. VALIDATE RECTANGLE
+        // =========================================================
+
+        float signatureWidth =
+                urx - llx;
+
+        float signatureHeight =
+                ury - lly;
+
+
+        if (signatureWidth <= 0 ||
+                signatureHeight <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Invalid signature rectangle."
+            );
+        }
+
+
+        // =========================================================
+        // 5. LOAD IMAGE
+        // =========================================================
+
+        byte[] imageBytes =
+                signatureImage.readAllBytes();
+
+        if (imageBytes.length == 0) {
+
+            throw new IllegalArgumentException(
+                    "Signature image is empty."
+            );
+        }
+
+
+        ImageData imageData =
+                ImageDataFactory.create(imageBytes);
+
+
+        // =========================================================
+        // 6. UNIQUE FIELD NAME
+        // =========================================================
+
+        String fieldName =
+                "signature-" + System.currentTimeMillis();
+
+
+        // =========================================================
+        // 7. SIGNATURE BOX INTERNAL DIMENSIONS
+        // =========================================================
+
+        float padding = 5;
+
+        float contentWidth =
+                signatureWidth - (2 * padding);
+
+        float contentHeight =
+                signatureHeight - (2 * padding);
+
+
+        // =========================================================
+        // 8. RESERVE SPACE FOR TEXT
+        // =========================================================
+
+        /*
+         * We need enough space for:
+         *
+         * Name
+         * Designation
+         * Organization
+         *
+         * 3 lines × approximately 10-12 points.
+         */
+        float textHeight = 42;
+
+
+        float imageAvailableHeight =
+                contentHeight - textHeight;
+
+
+        if (imageAvailableHeight <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Signature rectangle is too small. " +
+                            "Increase its height."
+            );
+        }
+
+
+        // =========================================================
+        // 9. CREATE SIGNATURE IMAGE
+        // =========================================================
+
+        Image signature =
+                new Image(imageData);
+
+
+        /*
+         * IMPORTANT:
+         *
+         * scaleToFit() preserves the original aspect ratio.
+         *
+         * The image will use as much width as possible,
+         * but will never exceed the image area height.
+         */
+        signature.scaleToFit(
+                contentWidth,
+                imageAvailableHeight
         );
 
-        // 4. Sign
-        IExternalDigest digest = new BouncyCastleDigest();
-        IExternalSignature pks = new PrivateKeySignature(
-                privateKey, DigestAlgorithms.SHA256, BouncyCastleProvider.PROVIDER_NAME);
+
+        /*
+         * Center the image horizontally.
+         */
+        signature.setHorizontalAlignment(
+                com.itextpdf.layout.properties.HorizontalAlignment.CENTER
+        );
+
+
+        /*
+         * Remove extra margins.
+         */
+        signature
+                .setMarginTop(0)
+                .setMarginBottom(2)
+                .setMarginLeft(0)
+                .setMarginRight(0);
+
+
+        // =========================================================
+        // 10. CREATE SIGNATURE CONTENT
+        // =========================================================
+
+        Div signatureContent =
+                new Div();
+
+        signatureContent
+                .setWidth(contentWidth)
+                .setHeight(contentHeight)
+                .setTextAlignment(TextAlignment.CENTER)
+                .setPadding(0)
+                .setMargin(0);
+
+
+        // =========================================================
+        // 11. ADD SIGNATURE IMAGE
+        // =========================================================
+
+        signatureContent.add(signature);
+
+
+        // =========================================================
+        // 12. ADD NAME
+        // =========================================================
+
+        if (name != null &&
+                !name.isBlank()) {
+
+            Paragraph nameParagraph =
+                    new Paragraph(name)
+                            .setFontSize(10)
+                            .setBold()
+                            .setTextAlignment(
+                                    TextAlignment.CENTER
+                            )
+                            .setMargin(0)
+                            .setPadding(0)
+                            .setFixedLeading(11);
+
+            signatureContent.add(
+                    nameParagraph
+            );
+        }
+
+
+        // =========================================================
+        // 13. ADD DESIGNATION
+        // =========================================================
+
+        if (designation != null &&
+                !designation.isBlank()) {
+
+            Paragraph designationParagraph =
+                    new Paragraph(designation)
+                            .setFontSize(8)
+                            .setTextAlignment(
+                                    TextAlignment.CENTER
+                            )
+                            .setMargin(0)
+                            .setPadding(0)
+                            .setFixedLeading(10);
+
+            signatureContent.add(
+                    designationParagraph
+            );
+        }
+
+
+        // =========================================================
+        // 14. ADD ORGANIZATION
+        // =========================================================
+
+        if (organization != null &&
+                !organization.isBlank()) {
+
+            Paragraph organizationParagraph =
+                    new Paragraph(organization)
+                            .setFontSize(8)
+                            .setTextAlignment(
+                                    TextAlignment.CENTER
+                            )
+                            .setMargin(0)
+                            .setPadding(0)
+                            .setFixedLeading(10);
+
+            signatureContent.add(
+                    organizationParagraph
+            );
+        }
+
+
+        // =========================================================
+        // 15. CREATE SIGNATURE APPEARANCE
+        // =========================================================
+
+        SignatureFieldAppearance appearance =
+                new SignatureFieldAppearance(fieldName)
+                        .setContent(signatureContent);
+
+
+        // =========================================================
+        // 16. CREATE SIGNER PROPERTIES
+        // =========================================================
+
+        SignerProperties signerProperties =
+                new SignerProperties()
+
+                        .setFieldName(fieldName)
+
+                        .setPageNumber(pageNumber)
+
+                        .setPageRect(
+                                new Rectangle(
+                                        llx,
+                                        lly,
+                                        signatureWidth,
+                                        signatureHeight
+                                )
+                        )
+
+                        .setReason(
+                                "Signed by " + name
+                        )
+
+                        .setLocation(
+                                organization
+                        )
+
+                        .setSignatureCreator(
+                                "CDAC-PdfSigningService"
+                        )
+
+                        .setSignatureAppearance(
+                                appearance
+                        );
+
+
+        // =========================================================
+        // 17. CREATE PDF READER
+        // =========================================================
+
+        PdfReader reader =
+                new PdfReader(sourcePdf);
+
+
+        // =========================================================
+        // 18. CREATE PDF SIGNER
+        // =========================================================
+
+        PdfSigner signer =
+                new PdfSigner(
+                        reader,
+                        outputStream,
+                        null,
+                        new StampingProperties(),
+                        signerProperties
+                );
+
+
+        // =========================================================
+        // 19. CREATE DIGEST
+        // =========================================================
+
+        IExternalDigest digest =
+                new BouncyCastleDigest();
+
+
+        // =========================================================
+        // 20. CREATE CRYPTOGRAPHIC SIGNATURE
+        // =========================================================
+
+        IExternalSignature pks =
+                new PrivateKeySignature(
+                        privateKey,
+                        DigestAlgorithms.SHA256,
+                        BouncyCastleProvider.PROVIDER_NAME
+                );
+
+
+        // =========================================================
+        // 21. DIGITALLY SIGN PDF
+        // =========================================================
 
         signer.signDetached(
+
                 digest,
+
                 pks,
+
                 chain,
-                null,               // CRL list
-                null,               // OCSP client
-                null,               // TSA client
-                0,                  // estimated size (0 = auto)
+
+                null,       // CRL
+
+                null,       // OCSP
+
+                null,       // TSA
+
+                0,
+
                 PdfSigner.CryptoStandard.CMS
         );
     }

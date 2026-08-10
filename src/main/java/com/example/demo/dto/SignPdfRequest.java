@@ -9,6 +9,8 @@ public class SignPdfRequest {
     private float lly;
     private float urx;
     private float ury;
-    private String reason;
-    private String location;
+    private String  name;
+    private String designation;
+    private String organization;
+
 }
