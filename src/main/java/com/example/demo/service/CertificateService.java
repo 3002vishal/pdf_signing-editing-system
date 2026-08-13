@@ -5,8 +5,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
 
 @Service
 @AllArgsConstructor
@@ -15,15 +14,14 @@ public class CertificateService {
     private final CertificateGenerationService certificateGenerationService;
     private final PdfSigningService pdfSigningService;
 
-
     public byte[] generateAndSignCertificate(
 
-            String templatePath,
+            InputStream templatePdf,
+
+            InputStream signatureImage,
 
             String name,
-
             String date,
-
             String certificateId,
 
             int pageNumber,
@@ -45,93 +43,68 @@ public class CertificateService {
     ) throws Exception {
 
         // -----------------------------------------
-        // 1. Create temporary unsigned PDF
+        // 1. Generate unsigned PDF IN MEMORY
         // -----------------------------------------
 
-        Path unsignedPdf =
-                Files.createTempFile(
-                        "certificate-unsigned-",
-                        ".pdf"
-                );
+        ByteArrayOutputStream unsignedPdf =
+                new ByteArrayOutputStream();
 
-        try {
+        certificateGenerationService.generateCertificate(
 
-            // -----------------------------------------
-            // 2. Generate certificate
-            // -----------------------------------------
+                templatePdf,
 
-            certificateGenerationService.generateCertificate(
+                unsignedPdf,
 
-                    templatePath,
+                name,
 
-                    unsignedPdf.toString(),
+                textX,
+                textY,
+                textFontSize,
+                textFontType,
+                centerText
+        );
+
+
+        // -----------------------------------------
+        // 2. Sign unsigned PDF IN MEMORY
+        // -----------------------------------------
+
+        ByteArrayOutputStream signedPdf =
+                new ByteArrayOutputStream();
+
+        try (
+                ByteArrayInputStream pdfInput =
+                        new ByteArrayInputStream(
+                                unsignedPdf.toByteArray()
+                        )
+        ) {
+
+            pdfSigningService.signPdf(
+
+                    pdfInput,
+
+                    signatureImage,
+
+                    signedPdf,
+
+                    pageNumber,
+
+                    signatureLlx,
+                    signatureLly,
+                    signatureUrx,
+                    signatureUry,
 
                     name,
-
-                    textX,
-                    textY,
-                    textFontSize,
-                    textFontType,
-                    centerText
+                    null,
+                    location
             );
-
-
-            // -----------------------------------------
-            // 3. Read generated PDF
-            // -----------------------------------------
-
-            byte[] unsignedPdfBytes =
-                    Files.readAllBytes(unsignedPdf);
-
-
-            // -----------------------------------------
-            // 4. Prepare signature position
-            // -----------------------------------------
-
-            // -----------------------------------------
-            // 5. Sign PDF
-            // -----------------------------------------
-
-            ByteArrayOutputStream signedPdf =
-                    new ByteArrayOutputStream();
-
-            try (ByteArrayInputStream input =
-                         new ByteArrayInputStream(
-                                 unsignedPdfBytes
-                         )) {
-
-                pdfSigningService.signPdf(
-
-                        input,
-
-                        signedPdf,
-
-                        pageNumber,
-
-                        signatureLlx,
-                        signatureLly,
-                        signatureUrx,
-                        signatureUry,
-
-                        reason,
-                        location
-                );
-            }
-
-
-            // -----------------------------------------
-            // 6. Return final signed certificate
-            // -----------------------------------------
-
-            return signedPdf.toByteArray();
-
-        } finally {
-
-            // -----------------------------------------
-            // 7. Delete temporary unsigned PDF
-            // -----------------------------------------
-
-            Files.deleteIfExists(unsignedPdf);
         }
+
+
+        // -----------------------------------------
+        // 3. Return final signed PDF
+        // -----------------------------------------
+
+        return signedPdf.toByteArray();
     }
 }

@@ -5,18 +5,19 @@ import com.example.demo.dto.GenerateCertificateRequest;
 import com.example.demo.dto.SignPdfRequest;
 import com.example.demo.service.CertificateGenerationService;
 import com.example.demo.service.CertificateService;
-import com.example.demo.service.CertificateTemplateService;
-import com.example.demo.service.PdfSigningService; // Update with your actual service package
+import com.example.demo.service.PdfSigningService;
+
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
 
 @RestController
 @RequestMapping("/api/pdf")
@@ -27,110 +28,174 @@ public class PdfController {
     private final CertificateGenerationService certificateGenerationService;
     private final CertificateService certificateService;
 
-    // Constructor Injection
-    public PdfController(ResourceLoader resourceLoader, PdfSigningService pdfSigningService,
-                         CertificateGenerationService certificateGenerationService,
-                         CertificateService certificateService) {
+    public PdfController(
+            ResourceLoader resourceLoader,
+            PdfSigningService pdfSigningService,
+            CertificateGenerationService certificateGenerationService,
+            CertificateService certificateService) {
+
         this.resourceLoader = resourceLoader;
         this.pdfSigningService = pdfSigningService;
         this.certificateGenerationService = certificateGenerationService;
         this.certificateService = certificateService;
     }
 
-    @PostMapping("/sign")
-    public ResponseEntity<byte[]> signPdf(@RequestBody SignPdfRequest request) throws Exception {
-        Resource template = resourceLoader.getResource("classpath:templates/template.pdf");
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-        pdfSigningService.signPdf(
-                template.getInputStream(),
-                out,
-                request.getPageNumber(),                // Page number
-                request.getLlx(),
-                request.getLly(),
-                request.getUrx(),
-                request.getUry(), // Coordinates: llx, lly, urx, ury
-                request.getReason(),
-                request.getLocation()
-        );
+    // =========================================================
+    // 1. SIGN EXISTING PDF
+    // =========================================================
+   @PostMapping(
+           value = "/sign",
+           consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+   )
+   public ResponseEntity<byte[]> signPdf(
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=signed.pdf")
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(out.toByteArray());
-    }
+           @RequestPart("file")
+           MultipartFile pdfFile,
 
-    @PostMapping("/generate")
+           @RequestPart("signatureImage")
+           MultipartFile signatureImage,
+
+           @RequestPart("request")
+           SignPdfRequest request
+
+   ) throws Exception
+   {
+       ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+       pdfSigningService.signPdf(
+               pdfFile.getInputStream(),
+               signatureImage.getInputStream(),
+               output,
+               request.getPageNumber(),
+               request.getLlx(),
+               request.getLly(),
+               request.getUrx(),
+               request.getUry(),
+               request.getName(),
+               request.getDesignation(),
+               request.getOrganization()
+
+       );
+
+       return ResponseEntity.ok()
+               .contentType(MediaType.APPLICATION_PDF)
+               .header(
+                       HttpHeaders.CONTENT_DISPOSITION,
+                       "attachement: filename= signed.pdf"
+
+               ).body(output.toByteArray());
+
+
+   }
+
+
+    // =========================================================
+    // 2. GENERATE CERTIFICATE
+    // =========================================================
+
+    @PostMapping(
+            value = "/generate",
+
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
     public ResponseEntity<byte[]> generateCertificate(
-            @RequestBody GenerateCertificateRequest request)
+            @RequestPart("file")
+            MultipartFile pdfFile,
+            @RequestPart("request")
+            GenerateCertificateRequest request)
             throws Exception {
 
-        String template =
-                "src/main/resources/templates/template.pdf";
 
-        String output =
-                "generated-certificate.pdf";
 
-        certificateGenerationService.generateCertificate(
-                template,
-                output,
-                request.getName(),
-                request.getX(),
-                request.getY(),
-                request.getFontSize(),
-                request.getFontName(),
-                request.isCenterText()
-        );
+        ByteArrayOutputStream outputPdf =
+                new ByteArrayOutputStream();
 
-        byte[] pdf =
-                Files.readAllBytes(Path.of(output));
+
+
+            certificateGenerationService.generateCertificate(
+
+                    pdfFile.getInputStream(),
+
+                    outputPdf,
+
+                    request.getName(),
+
+                    request.getX(),
+                    request.getY(),
+
+                    request.getFontSize(),
+                    request.getFontName(),
+
+                    request.isCenterText()
+            );
+
 
         return ResponseEntity.ok()
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=certificate.pdf"
                 )
-                .contentType(
-                        MediaType.APPLICATION_PDF
-                )
-                .body(pdf);
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(outputPdf.toByteArray());
     }
 
-    @PostMapping("/generate-and-sign")
+
+    // =========================================================
+    // 3. GENERATE + SIGN CERTIFICATE
+    // =========================================================
+    @PostMapping(
+            value = "/generate-and-sign",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
     public ResponseEntity<byte[]> generateAndSignCertificate(
-            @RequestBody GenerateAndSignRequest request
+
+            @RequestPart("file")
+            MultipartFile pdfFile,
+
+            @RequestPart("signatureImage")
+            MultipartFile signatureImage,
+
+            @RequestPart("request")
+            GenerateAndSignRequest request
+
     ) throws Exception {
 
-        Resource template =
-                resourceLoader.getResource(
-                        "classpath:templates/template.pdf"
-                );
 
-        byte[] signedPdf =
-                certificateService.generateAndSignCertificate(
 
-                        template.getURL().getPath(),
+        byte[] signedPdf;
 
-                        request.getName(),
-                        request.getDate(),
-                        request.getCertificateId(),
 
-                        request.getPageNumber(),
+            signedPdf =
+                    certificateService.generateAndSignCertificate(
 
-                        request.getTextX(),
-                        request.getTextY(),
-                        request.getTextFontSize(),
-                        request.getTextFontType(),
-                        request.isCenterText(),
+                            pdfFile.getInputStream(),
 
-                        request.getSignatureLlx(),
-                        request.getSignatureLly(),
-                        request.getSignatureUrx(),
-                        request.getSignatureUry(),
+                            signatureImage.getInputStream(),
 
-                        request.getReason(),
-                        request.getLocation()
-                );
+                            request.getName(),
+                            request.getDate(),
+                            request.getCertificateId(),
+
+                            request.getPageNumber(),
+
+                            request.getTextX(),
+                            request.getTextY(),
+
+                            request.getTextFontSize(),
+                            request.getTextFontType(),
+
+                            request.isCenterText(),
+
+                            request.getSignatureLlx(),
+                            request.getSignatureLly(),
+                            request.getSignatureUrx(),
+                            request.getSignatureUry(),
+
+                            request.getReason(),
+                            request.getLocation()
+                    );
+
 
         return ResponseEntity.ok()
                 .header(
@@ -140,5 +205,4 @@ public class PdfController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(signedPdf);
     }
-
 }
