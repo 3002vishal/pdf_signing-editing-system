@@ -417,7 +417,7 @@ public class PdfSigningService {
                         reader,
                         outputStream,
                         null,
-                        new StampingProperties(),
+                        new StampingProperties().useAppendMode(),
                         signerProperties
                 );
 

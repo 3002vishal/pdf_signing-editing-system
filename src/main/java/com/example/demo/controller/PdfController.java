@@ -94,25 +94,28 @@ public class PdfController {
     // 2. GENERATE CERTIFICATE
     // =========================================================
 
-    @PostMapping("/generate")
+    @PostMapping(
+            value = "/generate",
+
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
     public ResponseEntity<byte[]> generateCertificate(
-            @RequestBody GenerateCertificateRequest request)
+            @RequestPart("file")
+            MultipartFile pdfFile,
+            @RequestPart("request")
+            GenerateCertificateRequest request)
             throws Exception {
 
-        Resource template =
-                resourceLoader.getResource(
-                        "classpath:templates/template.pdf"
-                );
+
 
         ByteArrayOutputStream outputPdf =
                 new ByteArrayOutputStream();
 
-        try (InputStream templateInputStream =
-                     template.getInputStream()) {
+
 
             certificateGenerationService.generateCertificate(
 
-                    templateInputStream,
+                    pdfFile.getInputStream(),
 
                     outputPdf,
 
@@ -126,7 +129,7 @@ public class PdfController {
 
                     request.isCenterText()
             );
-        }
+
 
         return ResponseEntity.ok()
                 .header(
@@ -147,6 +150,9 @@ public class PdfController {
     )
     public ResponseEntity<byte[]> generateAndSignCertificate(
 
+            @RequestPart("file")
+            MultipartFile pdfFile,
+
             @RequestPart("signatureImage")
             MultipartFile signatureImage,
 
@@ -155,27 +161,17 @@ public class PdfController {
 
     ) throws Exception {
 
-        Resource template =
-                resourceLoader.getResource(
-                        "classpath:templates/template.pdf"
-                );
+
 
         byte[] signedPdf;
 
-        try (
-                InputStream templateInputStream =
-                        template.getInputStream();
-
-                InputStream signatureImageInputStream =
-                        signatureImage.getInputStream()
-        ) {
 
             signedPdf =
                     certificateService.generateAndSignCertificate(
 
-                            templateInputStream,
+                            pdfFile.getInputStream(),
 
-                            signatureImageInputStream,
+                            signatureImage.getInputStream(),
 
                             request.getName(),
                             request.getDate(),
@@ -199,7 +195,7 @@ public class PdfController {
                             request.getReason(),
                             request.getLocation()
                     );
-        }
+
 
         return ResponseEntity.ok()
                 .header(
